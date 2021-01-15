@@ -360,8 +360,10 @@ void storage_service::prepare_to_join(
         app_states.emplace(gms::application_state::CDC_STREAMS_TIMESTAMP, versioned_value::cdc_streams_timestamp(_cdc_streams_ts));
         app_states.emplace(gms::application_state::STATUS, versioned_value::normal(my_tokens));
     }
+    auto advertise = gms::advertise_myself::yes;
     if (replacing_a_node_with_same_ip || replacing_a_node_with_diff_ip) {
         app_states.emplace(gms::application_state::TOKENS, versioned_value::tokens(_bootstrap_tokens));
+        advertise = gms::advertise_myself::no;
     }
     const auto& snitch_name = locator::i_endpoint_snitch::get_local_snitch_ptr()->get_name();
     app_states.emplace(gms::application_state::SNITCH_NAME, versioned_value::snitch_name(snitch_name));
@@ -369,7 +371,7 @@ void storage_service::prepare_to_join(
     slogger.info("Starting up server gossip");
 
     auto generation_number = db::system_keyspace::increment_and_get_generation().get0();
-    _gossiper.start_gossiping(generation_number, app_states, gms::bind_messaging_port(bool(do_bind))).get();
+    _gossiper.start_gossiping(generation_number, app_states, gms::bind_messaging_port(bool(do_bind)), advertise).get();
 
     install_schema_version_change_listener();
 
@@ -935,6 +937,7 @@ void storage_service::bootstrap() {
             { gms::application_state::CDC_STREAMS_TIMESTAMP, versioned_value::cdc_streams_timestamp(_cdc_streams_ts) },
             { gms::application_state::STATUS, versioned_value::hibernate(true) },
         }).get();
+        _gossiper.advertise_myself().get();
         set_mode(mode::JOINING, format("Wait until peer nodes know the bootstrap tokens of local node"), true);
         _gossiper.wait_for_range_setup().get();
         auto replace_addr = db().local().get_replace_address();
